@@ -557,7 +557,7 @@ def market_layout():
 # ============================================================
 def predictor_layout():
     return html.Div([
-        html.H4("🤖 Vehicle Price Predictor",
+        html.H4(" Vehicle Price Predictor",
                 style={"fontWeight": "700", "marginBottom": "8px"}),
         html.P("Fill in the vehicle details to get an estimated selling price.",
                style={"color": TEXT_MUTED, "marginBottom": "20px"}),
