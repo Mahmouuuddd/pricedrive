@@ -1,10 +1,3 @@
-# ============================================================
-# PRICEDRIVE — Dash Dashboard (Single-file dark styled version)
-# Based on: app2.py functionality
-# Styling adapted from: app.py
-# No external HTML/CSS asset files required
-# ============================================================
-
 import joblib
 import numpy as np
 import pandas as pd
