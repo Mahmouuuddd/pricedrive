@@ -1,572 +1,1005 @@
-"""
-PriceDrive — Dash dashboard for vehicle selling price prediction (XGBoost).
-Preprocessing matches project.ipynb: cleaned_dataset.csv + LabelEncoder on categoricals.
-"""
-from __future__ import annotations
+# ============================================================
+# PRICEDRIVE — Dash Dashboard (Single-file dark styled version)
+# Based on: app2.py functionality
+# Styling adapted from: app.py
+# No external HTML/CSS asset files required
+# ============================================================
 
-import os
-from pathlib import Path
-
+import joblib
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html
-from dash.exceptions import PreventUpdate
+from plotly.subplots import make_subplots
+from dash import Dash, dcc, html, Input, Output, State
+import dash_bootstrap_components as dbc
 
-from predict import load_artifacts, predict_price
+# ============================================================
+# LOAD DATA & MODEL
+# ============================================================
+df = pd.read_csv(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\dataset\cleaned_dataset.csv')
 
-ROOT = Path(__file__).resolve().parent
+# Ensure correct types
+df['year']         = df['year'].astype(int)
+df['condition']    = df['condition'].astype(float)
+df['odometer']     = df['odometer'].astype(float)
+df['sellingprice'] = df['sellingprice'].astype(float)
+df['vehicle_age']  = df['vehicle_age'].astype(int)
 
-DATA_PATH = ROOT / "dataset" / "cleaned_dataset.csv"
-SAMPLE_CAP = 12_000
+# Load ML artifacts
+model     = joblib.load(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\models\xgb_pricedrive.pkl')
+encoders  = joblib.load(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\models\label_encoders.pkl')
+feat_cols = joblib.load(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\models\feature_columns.pkl')
 
-_df = pd.read_csv(DATA_PATH)
-_year_min = int(_df["year"].min())
-_year_max = int(_df["year"].max())
+# Unique values for dropdowns
+makes         = sorted(df['make'].dropna().unique().tolist())
+body_types    = sorted(df[df['body'] != 'unknown']['body'].dropna().unique().tolist())
+transmissions = sorted(df['transmission'].dropna().unique().tolist())
 
-# UI options and charts (string categoricals)
-_raw = _df[
-    ["make", "model", "trim", "body", "transmission", "sellingprice"]
-].copy()
-_makes = sorted(_raw["make"].astype(str).unique())
-_model_by_make = {
-    str(k): v
-    for k, v in _raw.groupby("make")["model"]
-    .agg(lambda s: sorted(s.astype(str).unique()))
-    .items()
+# ============================================================
+# APP INIT
+# ============================================================
+app = Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.DARKLY],
+    suppress_callback_exceptions=True
+)
+server = app.server  # for Render deployment
+
+# ============================================================
+# THEME
+# ============================================================
+BG_PRIMARY   = "#0b0f14"
+BG_SECONDARY = "#121a24"
+BG_CARD      = "#1a2332"
+BG_INPUT     = "#0f1419"
+BORDER       = "#2d3a4f"
+TEXT_MAIN    = "#e6edf3"
+TEXT_MAIN2   = "#010f1b"
+TEXT_MUTED   = "#8b949e"
+
+ACCENT_BLUE  = "#3d8bfd"
+ACCENT_SKY   = "#58a6ff"
+ACCENT_RED   = "#ff7b72"
+ACCENT_LAV   = "#a5b4fc"
+ACCENT_CYAN  = "#79c0ff"
+
+PLOT_TEMPLATE = "plotly_dark"
+
+# ============================================================
+# STYLES
+# ============================================================
+SIDEBAR_STYLE = {
+    "position": "fixed",
+    "top": 0, "left": 0, "bottom": 0,
+    "width": "240px",
+    "padding": "32px 24px",
+    "backgroundColor": BG_INPUT,
+    "color": TEXT_MAIN,
+    "borderRight": f"1px solid {BORDER}",
+    "zIndex": 100,
 }
-_trim_by_make_model = {
-    (str(k[0]), str(k[1])): v
-    for k, v in _raw.groupby(["make", "model"])["trim"]
-    .agg(lambda s: sorted(s.astype(str).unique()))
-    .items()
+
+CONTENT_STYLE = {
+    "marginLeft": "260px",
+    "padding": "32px",
+    "background": f"linear-gradient(160deg, {BG_PRIMARY} 0%, {BG_SECONDARY} 50%, {BG_INPUT} 100%)",
+    "minHeight": "100vh",
+    "color": TEXT_MAIN,
 }
-_bodies = sorted(_raw["body"].astype(str).unique())
-_transmissions = sorted(_raw["transmission"].astype(str).unique())
 
-_model, _encoders, _feature_columns = load_artifacts()
+CARD_STYLE = {
+    "backgroundColor": BG_CARD,
+    "borderRadius": "14px",
+    "boxShadow": "0 4px 18px rgba(0,0,0,0.20)",
+    "border": f"1px solid {BORDER}",
+    "padding": "20px",
+    "marginBottom": "20px",
+}
 
-_importance = pd.DataFrame(
-    {
-        "feature": _feature_columns,
-        "importance": _model.feature_importances_,
-    }
-).sort_values("importance", ascending=True)
+INPUT_STYLE = {
+    "backgroundColor": BG_INPUT,
+    "color": TEXT_MAIN,
+    "border": f"1px solid {BORDER}",
+    "borderRadius": "8px",
+    "minHeight": "38px",
+}
+INPUT_STYLE_DROPDOWN = {
+    "backgroundColor": BG_INPUT,
+    "color": TEXT_MAIN2,
+    "border": f"1px solid {BORDER}",
+    "borderRadius": "8px",
+    "minHeight": "38px",
+}
 
-_fig_importance = px.bar(
-    _importance,
-    x="importance",
-    y="feature",
-    orientation="h",
-    title="Feature importance (XGBoost)",
-    color="importance",
-    color_continuous_scale="Viridis",
-)
-_fig_importance.update_layout(
-    paper_bgcolor="#0f1419",
-    plot_bgcolor="#1a2332",
-    font=dict(color="#e6edf3"),
-    title_font_size=16,
-    margin=dict(l=120, r=40, t=48, b=40),
-    coloraxis_showscale=False,
-    yaxis=dict(title=""),
-    xaxis=dict(title="Importance"),
-)
-
-_price_sample = _raw["sellingprice"].sample(
-    min(SAMPLE_CAP, len(_raw)), random_state=42
-)
+RESULT_BOX_STYLE = {
+    "borderRadius": "12px",
+    "padding": "24px",
+    "textAlign": "center",
+    "backgroundColor": BG_INPUT,
+    "border": f"2px dashed {BORDER}",
+    "minHeight": "140px",
+    "display": "flex",
+    "alignItems": "center",
+    "justifyContent": "center",
+    "marginBottom": "16px",
+}
 
 
-def _dist_fig(vline: float | None = None) -> go.Figure:
-    fig = px.histogram(
-        _price_sample.to_frame(name="sellingprice"),
-        x="sellingprice",
-        nbins=60,
-        title="Selling price distribution (sample of listings)",
-        labels={"sellingprice": "Selling price (USD)", "count": "Count"},
-    )
-    fig.update_traces(marker_line_width=0)
+GLOBAL_INLINE_CSS = f"""
+:root {{
+    --pd-bg-primary: {BG_PRIMARY};
+    --pd-bg-secondary: {BG_SECONDARY};
+    --pd-bg-card: {BG_CARD};
+    --pd-bg-input: {BG_INPUT};
+    --pd-border: {BORDER};
+    --pd-text-main: {TEXT_MAIN};
+    --pd-text-muted: {TEXT_MUTED};
+    --pd-accent: {ACCENT_SKY};
+    --pd-accent-strong: {ACCENT_BLUE};
+    --pd-danger: {ACCENT_RED};
+}}
+
+/* Native inputs from dbc.Input */
+.form-control,
+.form-select,
+input,
+textarea,
+select {{
+    background-color: var(--pd-bg-input) !important;
+    color: var(--pd-text-main) !important;
+    border: 1px solid var(--pd-border) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}}
+
+.form-control::placeholder,
+input::placeholder,
+textarea::placeholder {{
+    color: var(--pd-text-muted) !important;
+    opacity: 1 !important;
+}}
+
+.form-control:focus,
+.form-select:focus,
+input:focus,
+textarea:focus,
+select:focus {{
+    background-color: var(--pd-bg-input) !important;
+    color: var(--pd-text-main) !important;
+    border-color: var(--pd-accent) !important;
+    box-shadow: 0 0 0 0.2rem rgba(88, 166, 255, 0.15) !important;
+}}
+
+/* Dash Dropdown (react-select) */
+.Select-control,
+.Select-menu-outer,
+.Select-menu,
+.Select-value,
+.Select-placeholder,
+.Select-input > input,
+.Select-arrow-zone,
+.Select-clear-zone,
+.Select-option,
+.VirtualizedSelectOption,
+.VirtualizedSelectFocusedOption {{
+    background-color: var(--pd-bg-input) !important;
+    color: var(--pd-text-main) !important;
+}}
+
+.Select-control {{
+    border: 1px solid var(--pd-border) !important;
+    border-radius: 8px !important;
+    min-height: 38px !important;
+    background-image: none !important;
+}}
+
+.is-focused:not(.is-open) > .Select-control,
+.is-open > .Select-control,
+.Select-control:hover {{
+    border-color: var(--pd-accent) !important;
+    box-shadow: 0 0 0 0.2rem rgba(88, 166, 255, 0.15) !important;
+}}
+
+.Select-placeholder {{
+    color: var(--pd-text-muted) !important;
+}}
+
+.Select--single > .Select-control .Select-value,
+.Select-value-label,
+.has-value.Select--single > .Select-control .Select-value .Select-value-label {{
+    color: var(--pd-text-main) !important;
+}}
+
+.Select-input > input {{
+    color: var(--pd-text-main) !important;
+}}
+
+.Select-menu-outer {{
+    border: 1px solid var(--pd-border) !important;
+    border-top: none !important;
+}}
+
+.Select-option,
+.VirtualizedSelectOption {{
+    border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+}}
+
+.Select-option.is-focused,
+.VirtualizedSelectFocusedOption {{
+    background-color: #1f2a3a !important;
+    color: var(--pd-text-main) !important;
+}}
+
+.Select-option.is-selected {{
+    background-color: var(--pd-accent-strong) !important;
+    color: white !important;
+}}
+
+.Select-arrow {{
+    border-top-color: var(--pd-text-muted) !important;
+}}
+
+.is-open .Select-arrow {{
+    border-bottom-color: var(--pd-text-muted) !important;
+    border-top-color: transparent !important;
+}}
+
+.Select-clear-zone,
+.Select-arrow-zone {{
+    color: var(--pd-text-muted) !important;
+}}
+
+/* Number input spinners and disabled states */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {{
+    filter: invert(0.85);
+}}
+
+input[disabled],
+.form-control[disabled],
+.Select.is-disabled > .Select-control {{
+    opacity: 0.65 !important;
+    background-color: #111822 !important;
+}}
+
+/* Keep graph modebar readable */
+.modebar {{
+    background: transparent !important;
+}}
+"""
+
+app.index_string = f"""
+<!DOCTYPE html>
+<html>
+    <head>
+        {{%metas%}}
+        <title>PriceDrive</title>
+        {{%favicon%}}
+        {{%css%}}
+        <style>{GLOBAL_INLINE_CSS}</style>
+    </head>
+    <body>
+        {{%app_entry%}}
+        <footer>
+            {{%config%}}
+            {{%scripts%}}
+            {{%renderer%}}
+        </footer>
+    </body>
+</html>
+"""
+
+
+
+
+def style_figure(fig):
     fig.update_layout(
-        paper_bgcolor="#0f1419",
-        plot_bgcolor="#1a2332",
-        font=dict(color="#e6edf3"),
-        title_font_size=16,
-        margin=dict(l=48, r=24, t=48, b=48),
-        showlegend=False,
-        xaxis=dict(title="Selling price (USD)"),
-        yaxis=dict(title="Count"),
+        template=PLOT_TEMPLATE,
+        paper_bgcolor=BG_CARD,
+        plot_bgcolor=BG_CARD,
+        font=dict(color=TEXT_MAIN),
+        title_font=dict(size=18),
+        margin=dict(l=40, r=30, t=60, b=40),
     )
-    if vline is not None:
-        fig.add_vline(
-            x=vline,
-            line_color="#58a6ff",
-            line_width=2,
-            annotation_text="Your estimate",
-            annotation_position="top",
-        )
+    fig.update_xaxes(
+        gridcolor="rgba(255,255,255,0.08)",
+        zerolinecolor="rgba(255,255,255,0.10)"
+    )
+    fig.update_yaxes(
+        gridcolor="rgba(255,255,255,0.08)",
+        zerolinecolor="rgba(255,255,255,0.10)"
+    )
     return fig
 
 
-_fig_dist = _dist_fig()
+def kpi_card(title, value, color=ACCENT_SKY):
+    return html.Div([
+        html.P(title, style={"color": TEXT_MUTED, "marginBottom": "6px", "fontSize": "13px"}),
+        html.H4(value, style={"color": color, "fontWeight": "700", "margin": 0, "fontSize": "1.75rem"}),
+    ], style={**CARD_STYLE, "borderLeft": f"4px solid {color}", "textAlign": "center"})
 
 
-def input_style():
-    return {
-        "width": "100%",
-        "padding": "10px 12px",
-        "borderRadius": "8px",
-        "border": "1px solid #2d3a4f",
-        "backgroundColor": "#0f1419",
-        "color": "#e6edf3",
-        "boxSizing": "border-box",
-    }
+# ============================================================
+# SIDEBAR
+# ============================================================
+sidebar = html.Div([
+    html.Div([
+        html.H3("PriceDrive", style={"color": TEXT_MAIN, "fontWeight": "700", "marginBottom": "4px"}),
+        html.P("Data in the driver's seat", style={"color": TEXT_MUTED, "fontSize": "12px", "marginBottom": "32px"}),
+    ]),
+    dbc.Nav([
+        dbc.NavLink("  Overview",        href="/",          active="exact",
+                    style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
+        dbc.NavLink("  Sales Trends",    href="/trends",    active="exact",
+                    style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
+        dbc.NavLink("  Market Analysis", href="/market",    active="exact",
+                    style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
+        dbc.NavLink("  Price Predictor", href="/predictor", active="exact",
+                    style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
+    ], vertical=True, pills=True),
+], style=SIDEBAR_STYLE)
 
 
-def dropdown_style():
-    return {"color": "#0f1419"}
+# ============================================================
+# PAGE 1 — OVERVIEW
+# ============================================================
+def overview_layout():
+    total_sales = f"{len(df):,}"
+    avg_price   = f"${df['sellingprice'].mean():,.0f}"
+    avg_cond    = f"{df['condition'].mean():.1f} / 50"
+    avg_age     = f"{df['vehicle_age'].mean():.1f} yrs"
+    top_make    = df['make'].value_counts().idxmax().title()
+    top_body    = df['body'].value_counts().idxmax().title()
 
+    # Condition distribution
+    fig_cond = px.histogram(
+        df, x='condition', nbins=50,
+        title='Condition Rating Distribution',
+        labels={'condition': 'Condition Score'},
+        color_discrete_sequence=[ACCENT_SKY],
+    )
+    fig_cond.update_layout(bargap=0.05, height=320)
+    style_figure(fig_cond)
 
-external_stylesheets = [
-    "https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
-]
+    # Price distribution
+    fig_price = px.histogram(
+        df, x='sellingprice', nbins=80,
+        title='Selling Price Distribution',
+        labels={'sellingprice': 'Selling Price ($)'},
+        color_discrete_sequence=[ACCENT_BLUE],
+    )
+    fig_price.update_layout(bargap=0.05, height=320)
+    style_figure(fig_price)
 
-app = Dash(__name__, external_stylesheets=external_stylesheets)
-server = app.server
+    # Top 10 makes by volume
+    top_makes = df['make'].value_counts().head(10).reset_index()
+    top_makes.columns = ['make', 'count']
+    fig_makes = px.bar(
+        top_makes, x='count', y='make', orientation='h',
+        title='Top 10 Makes by Sales Volume',
+        labels={'count': 'Number of Sales', 'make': 'Make'},
+        color='count', color_continuous_scale='Blues',
+    )
+    fig_makes.update_layout(
+        height=360,
+        showlegend=False,
+        coloraxis_showscale=False,
+        yaxis=dict(autorange='reversed'),
+    )
+    style_figure(fig_makes)
 
-CARD = {
-    "backgroundColor": "#1a2332",
-    "borderRadius": "12px",
-    "padding": "20px 24px",
-    "marginBottom": "16px",
-    "border": "1px solid #2d3a4f",
-}
-
-app.layout = html.Div(
-    style={
-        "fontFamily": "'DM Sans', sans-serif",
-        "background": "linear-gradient(160deg, #0b0f14 0%, #121a24 50%, #0f1419 100%)",
-        "minHeight": "100vh",
-        "color": "#e6edf3",
-        "padding": "28px 32px 48px",
-        "maxWidth": "1280px",
-        "margin": "0 auto",
-    },
-    children=[
-        html.Div(
-            [
-                html.H1(
-                    "PriceDrive",
-                    style={
-                        "margin": "0 0 8px 0",
-                        "fontWeight": "700",
-                        "fontSize": "2.1rem",
-                        "letterSpacing": "-0.02em",
-                    },
-                ),
-                html.P(
-                    "Interactive selling price estimate from your notebook pipeline: "
-                    "cleaned vehicle features, label-encoded categoricals, tuned XGBoost regressor.",
-                    style={"margin": "0", "opacity": 0.85, "maxWidth": "720px"},
-                ),
-            ],
-            style={"marginBottom": "28px"},
-        ),
-        html.Div(
-            style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "20px"},
-            children=[
-                html.Div(
-                    style=CARD,
-                    children=[
-                        html.H3(
-                            "Vehicle details",
-                            style={"marginTop": 0, "marginBottom": "16px"},
-                        ),
-                        html.Div(
-                            style={
-                                "display": "grid",
-                                "gridTemplateColumns": "1fr 1fr",
-                                "gap": "14px",
-                            },
-                            children=[
-                                html.Div(
-                                    [
-                                        html.Label("Year"),
-                                        dcc.Slider(
-                                            id="year",
-                                            min=_year_min,
-                                            max=_year_max,
-                                            step=1,
-                                            value=max(
-                                                _year_min,
-                                                min(_year_max, 2015),
-                                            ),
-                                            marks={
-                                                y: str(y)
-                                                for y in sorted(
-                                                    {
-                                                        _year_min,
-                                                        _year_max,
-                                                        (_year_min + _year_max) // 2,
-                                                    }
-                                                    | set(
-                                                        range(
-                                                            _year_min,
-                                                            _year_max + 1,
-                                                            max(
-                                                                1,
-                                                                (_year_max - _year_min)
-                                                                // 5,
-                                                            ),
-                                                        )
-                                                    )
-                                                )
-                                            },
-                                            tooltip={
-                                                "placement": "bottom",
-                                                "always_visible": True,
-                                            },
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Vehicle age (at sale)"),
-                                        dcc.Input(
-                                            id="vehicle_age",
-                                            type="number",
-                                            value=3,
-                                            min=0,
-                                            max=40,
-                                            step=0.5,
-                                            style=input_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Condition"),
-                                        dcc.Input(
-                                            id="condition",
-                                            type="number",
-                                            value=45,
-                                            min=1,
-                                            max=50,
-                                            step=0.5,
-                                            style=input_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Odometer"),
-                                        dcc.Input(
-                                            id="odometer",
-                                            type="number",
-                                            value=45000,
-                                            min=0,
-                                            step=500,
-                                            style=input_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Make"),
-                                        dcc.Dropdown(
-                                            id="make",
-                                            options=[
-                                                {"label": m, "value": m} for m in _makes
-                                            ],
-                                            value=_makes[0] if _makes else None,
-                                            clearable=False,
-                                            style=dropdown_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Model"),
-                                        dcc.Dropdown(
-                                            id="model",
-                                            clearable=False,
-                                            style=dropdown_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Trim"),
-                                        dcc.Dropdown(
-                                            id="trim",
-                                            clearable=False,
-                                            style=dropdown_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Body"),
-                                        dcc.Dropdown(
-                                            id="body",
-                                            options=[
-                                                {"label": b, "value": b}
-                                                for b in _bodies
-                                            ],
-                                            value=_bodies[0] if _bodies else None,
-                                            clearable=False,
-                                            style=dropdown_style(),
-                                        ),
-                                    ]
-                                ),
-                                html.Div(
-                                    [
-                                        html.Label("Transmission"),
-                                        dcc.Dropdown(
-                                            id="transmission",
-                                            options=[
-                                                {"label": t, "value": t}
-                                                for t in _transmissions
-                                            ],
-                                            value=(
-                                                "automatic"
-                                                if "automatic" in _transmissions
-                                                else _transmissions[0]
-                                            ),
-                                            clearable=False,
-                                            style=dropdown_style(),
-                                        ),
-                                    ]
-                                ),
-                            ],
-                        ),
-                        html.Button(
-                            "Estimate price",
-                            id="predict-btn",
-                            type="button",
-                            n_clicks=0,
-                            style={
-                                "marginTop": "20px",
-                                "padding": "12px 28px",
-                                "fontSize": "1rem",
-                                "fontWeight": "600",
-                                "border": "none",
-                                "borderRadius": "8px",
-                                "cursor": "pointer",
-                                "background": "linear-gradient(135deg, #3d8bfd, #1f6feb)",
-                                "color": "#fff",
-                                "position": "relative",
-                                "zIndex": 2,
-                            },
-                        ),
-                    ],
-                ),
-                html.Div(
-                    children=[
-                        html.Div(
-                            style=CARD,
-                            children=[
-                                html.H3(
-                                    "Predicted selling price",
-                                    style={"marginTop": 0},
-                                ),
-                                html.Div(
-                                    id="price-out",
-                                    style={
-                                        "fontSize": "2.4rem",
-                                        "fontWeight": "700",
-                                        "color": "#58a6ff",
-                                    },
-                                    children="—",
-                                ),
-                                html.P(
-                                    id="price-note",
-                                    style={"opacity": 0.75, "fontSize": "0.9rem"},
-                                    children="Enter details and click Estimate price.",
-                                ),
-                            ],
-                        ),
-                        html.Div(
-                            style=CARD,
-                            children=[
-                                dcc.Graph(
-                                    id="pred-chart",
-                                    figure=_fig_dist,
-                                    config={"displayModeBar": False},
-                                    style={"height": "320px"},
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        ),
-        html.Div(
-            style=CARD,
-            children=[
-                dcc.Graph(
-                    id="importance-chart",
-                    figure=_fig_importance,
-                    config={"displayModeBar": False},
-                    style={"height": "420px"},
-                ),
-            ],
-        ),
-        # Browser writes here on each button click (avoids flaky n_clicks / timestamp on the server)
-        dcc.Store(id="predict-gen", data=None),
-    ],
-)
-
-
-@app.callback(
-    Output("model", "options"),
-    Output("model", "value"),
-    Input("make", "value"),
-)
-def set_model_options(make):
-    mk = str(make).strip() if make is not None else ""
-    if not mk or mk not in _model_by_make:
-        return [], None
-    opts = _model_by_make[mk]
-    return [{"label": m, "value": m} for m in opts], opts[0]
-
-
-@app.callback(
-    Output("trim", "options"),
-    Output("trim", "value"),
-    Input("make", "value"),
-    Input("model", "value"),
-)
-def set_trim_options(make, model):
-    mk = str(make).strip() if make is not None else ""
-    mo = str(model).strip() if model is not None else ""
-    if not mk or not mo:
-        return [], None
-    key = (mk, mo)
-    if key not in _trim_by_make_model:
-        return [], None
-    opts = _trim_by_make_model[key]
-    return [{"label": t, "value": t} for t in opts], opts[0]
-
-
-def _num(v) -> float | None:
-    if v is None or v == "":
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-app.clientside_callback(
-    """
-    function(n_clicks) {
-        if (n_clicks === undefined || n_clicks === null || n_clicks < 1) {
-            return window.dash_clientside.no_update;
+    # Odometer vs selling price scatter
+    sample = df.sample(n=min(15_000, len(df)), random_state=42)
+    fig_scatter = px.scatter(
+        sample, x='odometer', y='sellingprice',
+        color='vehicle_age', color_continuous_scale='Viridis_r',
+        opacity=0.4,
+        title='Odometer vs Selling Price (colored by vehicle age)',
+        labels={
+            'odometer': 'Odometer (miles)',
+            'sellingprice': 'Selling Price ($)',
+            'vehicle_age': 'Vehicle Age (yrs)',
         }
-        return Date.now();
-    }
-    """,
-    Output("predict-gen", "data"),
-    Input("predict-btn", "n_clicks"),
+    )
+    fig_scatter.update_layout(height=360)
+    style_figure(fig_scatter)
+
+    return html.Div([
+        html.H4("Dashboard Overview", style={"fontWeight": "700", "marginBottom": "20px"}),
+        dbc.Row([
+            dbc.Col(kpi_card("Total Sales",     total_sales, ACCENT_SKY),  width=2),
+            dbc.Col(kpi_card("Avg Price",       avg_price,   ACCENT_BLUE), width=2),
+            dbc.Col(kpi_card("Avg Condition",   avg_cond,    "#f0b36b"),   width=2),
+            dbc.Col(kpi_card("Avg Vehicle Age", avg_age,     ACCENT_LAV),  width=2),
+            dbc.Col(kpi_card("Top Make",        top_make,    ACCENT_RED),  width=2),
+            dbc.Col(kpi_card("Top Body Type",   top_body,    ACCENT_CYAN), width=2),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Col(html.Div([dcc.Graph(figure=fig_cond)],    style=CARD_STYLE), width=6),
+            dbc.Col(html.Div([dcc.Graph(figure=fig_price)],   style=CARD_STYLE), width=6),
+        ]),
+        dbc.Row([
+            dbc.Col(html.Div([dcc.Graph(figure=fig_makes)],   style=CARD_STYLE), width=5),
+            dbc.Col(html.Div([dcc.Graph(figure=fig_scatter)], style=CARD_STYLE), width=7),
+        ]),
+    ])
+
+
+# ============================================================
+# PAGE 2 — SALES TRENDS
+# ============================================================
+def trends_layout():
+    return html.Div([
+        html.H4("Sales Trends", style={"fontWeight": "700", "marginBottom": "20px"}),
+        html.Div([
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Filter by Make", style={"fontSize": "13px", "fontWeight": "600", "color": TEXT_MUTED}),
+                    dcc.Dropdown(
+                        id='trend-make-filter',
+                        options=[{'label': 'All Makes', 'value': 'all'}] +
+                                [{'label': m.title(), 'value': m} for m in makes],
+                        value='all', clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                ], width=4),
+                dbc.Col([
+                    html.Label("Filter by Body Type", style={"fontSize": "13px", "fontWeight": "600", "color": TEXT_MUTED}),
+                    dcc.Dropdown(
+                        id='trend-body-filter',
+                        options=[{'label': 'All Body Types', 'value': 'all'}] +
+                                [{'label': b.title(), 'value': b} for b in body_types],
+                        value='all', clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                ], width=4),
+                dbc.Col([
+                    html.Label("Filter by Transmission", style={"fontSize": "13px", "fontWeight": "600", "color": TEXT_MUTED}),
+                    dcc.Dropdown(
+                        id='trend-trans-filter',
+                        options=[{'label': 'All', 'value': 'all'}] +
+                                [{'label': t.title(), 'value': t} for t in transmissions],
+                        value='all', clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                ], width=4),
+            ]),
+        ], style=CARD_STYLE),
+        html.Div([dcc.Graph(id='trend-age-price')],   style=CARD_STYLE),
+        html.Div([dcc.Graph(id='trend-cond-price')],  style=CARD_STYLE),
+        html.Div([dcc.Graph(id='trend-year-volume')], style=CARD_STYLE),
+    ])
+
+
+# ============================================================
+# PAGE 3 — MARKET ANALYSIS
+# ============================================================
+def market_layout():
+    body_counts = df[df['body'] != 'unknown']['body'].value_counts().head(10).reset_index()
+    body_counts.columns = ['body', 'count']
+    fig_donut = px.pie(
+        body_counts, names='body', values='count',
+        hole=0.45, title='Sales Distribution by Body Type',
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig_donut.update_traces(textposition='inside', textinfo='percent+label')
+    fig_donut.update_layout(height=380, showlegend=False)
+    style_figure(fig_donut)
+
+    make_summary = (
+        df.groupby('make')
+        .agg(count=('sellingprice', 'count'),
+             avg_price=('sellingprice', 'mean'),
+             avg_condition=('condition', 'mean'))
+        .reset_index()
+        .query('count >= 200')
+        .sort_values('count', ascending=False)
+        .head(20)
+    )
+    fig_bubble = px.scatter(
+        make_summary, x='avg_price', y='count',
+        size='count', color='avg_condition', text='make',
+        color_continuous_scale='RdYlGn',
+        title='Top Makes: Sales Volume vs Average Price',
+        labels={
+            'avg_price': 'Avg Selling Price ($)',
+            'count': 'Sales Volume',
+            'avg_condition': 'Avg Condition',
+        }
+    )
+    fig_bubble.update_traces(textposition='top center', textfont_size=9)
+    fig_bubble.update_layout(height=420)
+    style_figure(fig_bubble)
+
+    body_stats = (
+        df[df['body'] != 'unknown']
+        .groupby('body')
+        .agg(count=('sellingprice', 'count'),
+             avg_price=('sellingprice', 'mean'))
+        .reset_index()
+        .sort_values('count', ascending=False)
+        .head(10)
+    )
+    fig_body = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=('Volume by Body Type', 'Avg Price by Body Type')
+    )
+    fig_body.add_trace(
+        go.Bar(x=body_stats['body'], y=body_stats['count'],
+               marker_color=ACCENT_BLUE, name='Volume'),
+        row=1, col=1
+    )
+    fig_body.add_trace(
+        go.Bar(x=body_stats.sort_values('avg_price', ascending=False)['body'],
+               y=body_stats.sort_values('avg_price', ascending=False)['avg_price'],
+               marker_color=ACCENT_RED, name='Avg Price'),
+        row=1, col=2
+    )
+    fig_body.update_layout(height=360, showlegend=False)
+    fig_body.update_xaxes(tickangle=-35)
+    style_figure(fig_body)
+
+    df['condition_bin'] = pd.cut(
+        df['condition'],
+        bins=[0, 10, 20, 30, 40, 50],
+        labels=['1-10', '11-20', '21-30', '31-40', '41-50']
+    )
+    
+
+    return html.Div([
+        html.H4("Market Analysis", style={"fontWeight": "700", "marginBottom": "20px"}),
+        dbc.Row([
+            dbc.Col(html.Div([dcc.Graph(figure=fig_donut)],  style=CARD_STYLE), width=5),
+            dbc.Col(html.Div([dcc.Graph(figure=fig_bubble)], style=CARD_STYLE), width=7),
+        ]),
+        html.Div([dcc.Graph(figure=fig_body)], style=CARD_STYLE),
+        
+    ])
+
+
+# ============================================================
+# PAGE 4 — PRICE PREDICTOR
+# ============================================================
+def predictor_layout():
+    return html.Div([
+        html.H4("🤖 Vehicle Price Predictor",
+                style={"fontWeight": "700", "marginBottom": "8px"}),
+        html.P("Fill in the vehicle details to get an estimated selling price.",
+               style={"color": TEXT_MUTED, "marginBottom": "20px"}),
+
+        html.Div([
+            dbc.Row([
+                # Column 1 — Vehicle identity
+                dbc.Col([
+                    html.Label("Make *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dcc.Dropdown(
+                        id='pred-make',
+                        options=[{'label': m.title(), 'value': m} for m in makes],
+                        placeholder='Select make...', clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                    html.Div(id='err-make', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.Label("Model *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dcc.Dropdown(
+                        id='pred-model',
+                        placeholder='Select make first...',
+                        clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                    html.Div(id='err-model', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.Label("Trim", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dcc.Dropdown(
+                        id='pred-trim',
+                        placeholder='Select model first...',
+                        clearable=True,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+
+                    html.Br(),
+                    html.Label("Body Type *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dcc.Dropdown(
+                        id='pred-body',
+                        options=[{'label': b.title(), 'value': b} for b in body_types],
+                        placeholder='Select body type...', clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                    html.Div(id='err-body', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.Label("Transmission *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dcc.Dropdown(
+                        id='pred-transmission',
+                        options=[{'label': t.title(), 'value': t} for t in transmissions],
+                        placeholder='Select transmission...', clearable=False,
+                        style=INPUT_STYLE_DROPDOWN,
+                    ),
+                    html.Div(id='err-transmission', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+                ], width=4),
+
+                # Column 2 — Numeric inputs
+                dbc.Col([
+                    html.Label("Year *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dbc.Input(
+                        id='pred-year', type='number',
+                        placeholder='e.g. 2014', min=1982, max=2015, step=1,
+                        style=INPUT_STYLE,
+                    ),
+                    html.Div(id='err-year', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.Label("Odometer (miles) *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dbc.Input(
+                        id='pred-odometer', type='number',
+                        placeholder='e.g. 35000', min=10, max=300000, step=1,
+                        style=INPUT_STYLE,
+                    ),
+                    html.Div(id='err-odometer', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.Label("Condition (1–50) *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dbc.Input(
+                        id='pred-condition', type='number',
+                        placeholder='e.g. 35', min=1, max=50, step=1,
+                        style=INPUT_STYLE,
+                    ),
+                    html.Div(id='err-condition', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.Label("Vehicle Age (years) *", style={"fontWeight": "600", "fontSize": "13px", "color": TEXT_MAIN}),
+                    dbc.Input(
+                        id='pred-age', type='number',
+                        placeholder='e.g. 3', min=0, max=33, step=1,
+                        style=INPUT_STYLE,
+                    ),
+                    html.Div(id='err-age', style={"color": ACCENT_RED, "fontSize": "12px", "marginTop": "4px"}),
+
+                    html.Br(),
+                    html.P("* Required fields",
+                           style={"color": TEXT_MUTED, "fontSize": "12px"}),
+                ], width=4),
+
+                # Column 3 — Button + result
+                dbc.Col([
+                    dbc.Button(
+                        "Predict Price 🚗", id='pred-btn',
+                        color='primary', size='lg',
+                        style={
+                            "width": "100%",
+                            "fontWeight": "700",
+                            "marginBottom": "20px",
+                            "background": f"linear-gradient(135deg, {ACCENT_BLUE}, #1f6feb)",
+                            "border": "none",
+                        }
+                    ),
+                    html.Div(id='pred-result', style=RESULT_BOX_STYLE),
+                    html.Div(id='pred-note', style={
+                        "fontSize": "12px",
+                        "color": TEXT_MUTED,
+                        "textAlign": "center",
+                    }),
+                ], width=4),
+            ]),
+        ], style=CARD_STYLE),
+
+        html.Div([
+            html.H6("What drives the predicted price?",
+                    style={"fontWeight": "700", "marginBottom": "12px"}),
+            dcc.Graph(id='feat-importance'),
+        ], style=CARD_STYLE),
+    ])
+
+
+# ============================================================
+# APP LAYOUT
+# ============================================================
+app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    sidebar,
+    html.Div(id='page-content', style=CONTENT_STYLE),
+])
+
+
+# ============================================================
+# CALLBACK — ROUTING
+# ============================================================
+@app.callback(Output('page-content', 'children'), Input('url', 'pathname'))
+def render_page(pathname):
+    if pathname == '/trends':
+        return trends_layout()
+    elif pathname == '/market':
+        return market_layout()
+    elif pathname == '/predictor':
+        return predictor_layout()
+    return overview_layout()
+
+
+# ============================================================
+# CALLBACKS — TRENDS
+# ============================================================
+@app.callback(
+    Output('trend-age-price',   'figure'),
+    Output('trend-cond-price',  'figure'),
+    Output('trend-year-volume', 'figure'),
+    Input('trend-make-filter',  'value'),
+    Input('trend-body-filter',  'value'),
+    Input('trend-trans-filter', 'value'),
+)
+def update_trends(make_filter, body_filter, trans_filter):
+    dff = df.copy()
+    if make_filter != 'all':
+        dff = dff[dff['make'] == make_filter]
+    if body_filter != 'all':
+        dff = dff[dff['body'] == body_filter]
+    if trans_filter != 'all':
+        dff = dff[dff['transmission'] == trans_filter]
+
+    # Depreciation curve
+    age_stats = (
+        dff[dff['vehicle_age'] <= 20]
+        .groupby('vehicle_age')['sellingprice']
+        .agg(['mean', 'median', 'std', 'count'])
+        .reset_index()
+    )
+    age_stats['se']       = age_stats['std'] / np.sqrt(age_stats['count'])
+    age_stats['ci_upper'] = age_stats['mean'] + 1.96 * age_stats['se']
+    age_stats['ci_lower'] = age_stats['mean'] - 1.96 * age_stats['se']
+
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(
+        x=pd.concat([age_stats['vehicle_age'], age_stats['vehicle_age'][::-1]]),
+        y=pd.concat([age_stats['ci_upper'], age_stats['ci_lower'][::-1]]),
+        fill='toself', fillcolor='rgba(61, 139, 253, 0.15)',
+        line=dict(color='rgba(0,0,0,0)'), name='95% CI'
+    ))
+    fig1.add_trace(go.Scatter(
+        x=age_stats['vehicle_age'], y=age_stats['mean'],
+        mode='lines+markers', name='Mean price',
+        line=dict(color=ACCENT_BLUE, width=2.5)
+    ))
+    fig1.add_trace(go.Scatter(
+        x=age_stats['vehicle_age'], y=age_stats['median'],
+        mode='lines+markers', name='Median price',
+        line=dict(color=ACCENT_RED, width=2.5, dash='dash')
+    ))
+    fig1.update_layout(
+        title='Price Depreciation by Vehicle Age',
+        xaxis_title='Vehicle Age (years)',
+        yaxis_title='Selling Price ($)',
+        hovermode='x unified', height=360
+    )
+    style_figure(fig1)
+
+    # Condition vs avg price
+    dff['condition_bin'] = pd.cut(
+        dff['condition'],
+        bins=[0, 10, 20, 30, 40, 50],
+        labels=['1-10', '11-20', '21-30', '31-40', '41-50']
+    )
+    cond_price = (
+        dff.groupby('condition_bin', observed=True)['sellingprice']
+        .mean().reset_index()
+    )
+    fig2 = px.bar(
+        cond_price, x='condition_bin', y='sellingprice',
+        title='Average Selling Price by Condition Rating',
+        labels={'condition_bin': 'Condition (binned)',
+                'sellingprice': 'Avg Selling Price ($)'},
+        color='sellingprice', color_continuous_scale='RdYlGn',
+        category_orders={'condition_bin': ['1-10', '11-20', '21-30', '31-40', '41-50']}
+    )
+    fig2.update_layout(height=340, showlegend=False, coloraxis_showscale=False)
+    style_figure(fig2)
+
+    # Sales volume by manufacturing year
+    year_vol = dff.groupby('year').size().reset_index(name='count')
+    fig3 = px.bar(
+        year_vol, x='year', y='count',
+        title='Sales Volume by Manufacturing Year',
+        labels={'year': 'Year', 'count': 'Number of Sales'},
+        color='count', color_continuous_scale='Blues'
+    )
+    fig3.update_layout(height=340, showlegend=False, coloraxis_showscale=False)
+    style_figure(fig3)
+
+    return fig1, fig2, fig3
+
+
+# ============================================================
+# CALLBACKS — CASCADE DROPDOWNS
+# ============================================================
+@app.callback(Output('pred-model', 'options'), Input('pred-make', 'value'))
+def update_models(make):
+    if not make:
+        return []
+    models_list = sorted(df[df['make'] == make]['model'].dropna().unique().tolist())
+    return [{'label': m.title(), 'value': m} for m in models_list]
+
+
+@app.callback(
+    Output('pred-trim', 'options'),
+    Input('pred-make', 'value'),
+    Input('pred-model', 'value')
+)
+def update_trims(make, model_val):
+    if not make or not model_val:
+        return []
+    trims = sorted(
+        df[(df['make'] == make) & (df['model'] == model_val)]['trim']
+        .dropna().unique().tolist()
+    )
+    return [{'label': t, 'value': t} for t in trims]
+
+
+# ============================================================
+# CALLBACK — PREDICT + VALIDATE
+# ============================================================
+@app.callback(
+    Output('pred-result',      'children'),
+    Output('pred-note',        'children'),
+    Output('feat-importance',  'figure'),
+    Output('err-make',         'children'),
+    Output('err-model',        'children'),
+    Output('err-body',         'children'),
+    Output('err-transmission', 'children'),
+    Output('err-year',         'children'),
+    Output('err-odometer',     'children'),
+    Output('err-condition',    'children'),
+    Output('err-age',          'children'),
+    Input('pred-btn', 'n_clicks'),
+    State('pred-make',         'value'),
+    State('pred-model',        'value'),
+    State('pred-trim',         'value'),
+    State('pred-body',         'value'),
+    State('pred-transmission', 'value'),
+    State('pred-year',         'value'),
+    State('pred-odometer',     'value'),
+    State('pred-condition',    'value'),
+    State('pred-age',          'value'),
     prevent_initial_call=True,
 )
+def predict_price(n_clicks, make, model_val, trim, body,
+                  transmission, year, odometer, condition, age):
 
+    # ── Validation ──────────────────────────────────────────
+    err = {k: '' for k in ['make', 'model', 'body', 'transmission',
+                           'year', 'odometer', 'condition', 'age']}
+    has_error = False
 
-@app.callback(
-    Output("price-out", "children"),
-    Output("price-note", "children"),
-    Output("pred-chart", "figure"),
-    Input("predict-gen", "data"),
-    State("year", "value"),
-    State("vehicle_age", "value"),
-    State("condition", "value"),
-    State("odometer", "value"),
-    State("make", "value"),
-    State("model", "value"),
-    State("trim", "value"),
-    State("body", "value"),
-    State("transmission", "value"),
-)
-def run_predict(
-    _gen,
-    year,
-    vehicle_age,
-    condition,
-    odometer,
-    make,
-    model,
-    trim,
-    body,
-    transmission,
-):
-    if _gen is None:
-        raise PreventUpdate
+    if not make:
+        err['make'] = '⚠ Make is required';                  has_error = True
+    if not model_val:
+        err['model'] = '⚠ Model is required';                has_error = True
+    if not body:
+        err['body'] = '⚠ Body type is required';             has_error = True
+    if not transmission:
+        err['transmission'] = '⚠ Transmission is required';  has_error = True
+    if year is None:
+        err['year'] = '⚠ Year is required';                  has_error = True
+    elif not (1982 <= int(year) <= 2015):
+        err['year'] = '⚠ Must be between 1982–2015';         has_error = True
+    if odometer is None:
+        err['odometer'] = '⚠ Odometer is required';          has_error = True
+    elif not (10 <= int(odometer) <= 300000):
+        err['odometer'] = '⚠ Must be 10–300,000 miles';      has_error = True
+    if condition is None:
+        err['condition'] = '⚠ Condition is required';        has_error = True
+    elif not (1 <= int(condition) <= 50):
+        err['condition'] = '⚠ Must be between 1–50';         has_error = True
+    if age is None:
+        err['age'] = '⚠ Vehicle age is required';            has_error = True
+    elif int(age) < 0:
+        err['age'] = '⚠ Cannot be negative';                 has_error = True
 
-    year_f = _num(year)
-    age_f = _num(vehicle_age)
-    cond_f = _num(condition)
-    odo_f = _num(odometer)
-
-    missing = []
-    if year_f is None:
-        missing.append("year")
-    if age_f is None:
-        missing.append("vehicle age")
-    if cond_f is None:
-        missing.append("condition")
-    if odo_f is None:
-        missing.append("odometer")
-    if not make or not model or not trim or not body or not transmission:
-        missing.append("make/model/trim/body/transmission")
-
-    if missing:
-        return (
-            "—",
-            f"Please complete: {', '.join(missing)}.",
-            _fig_dist,
-        )
-
-    try:
-        price = predict_price(
-            _model,
-            _encoders,
-            _feature_columns,
-            year=year_f,
-            vehicle_age=age_f,
-            condition=cond_f,
-            odometer=odo_f,
-            make=str(make),
-            model=str(model),
-            trim=str(trim),
-            body=str(body),
-            transmission=str(transmission),
-        )
-    except Exception as e:  # noqa: BLE001
-        return "—", f"Prediction error: {e}", _fig_dist
-
-    price_fmt = f"${price:,.0f}"
-    note = (
-        "Point estimate from XGBoost; distribution shows a random sample of historical sales."
+    empty_fig = go.Figure()
+    empty_fig.update_layout(
+        template=PLOT_TEMPLATE,
+        paper_bgcolor=BG_CARD,
+        plot_bgcolor=BG_CARD,
+        font=dict(color=TEXT_MAIN),
+        height=300,
+        annotations=[dict(
+            text="Fill in the form and click Predict",
+            showarrow=False,
+            font=dict(size=14, color=TEXT_MUTED)
+        )]
     )
-    try:
-        fig = _dist_fig(vline=float(price))
-    except Exception:  # noqa: BLE001
-        fig = _fig_dist
-    return price_fmt, note, fig
 
+    if has_error:
+        msg = html.P("⚠ Please fix the errors highlighted above.",
+                     style={"color": ACCENT_RED, "fontWeight": "600"})
+        return (msg, '', empty_fig,
+                err['make'], err['model'], err['body'], err['transmission'],
+                err['year'], err['odometer'], err['condition'], err['age'])
 
-def _port() -> int:
-    return int(os.environ.get("PORT", "8050"))
-
-
-if __name__ == "__main__":
-    # Debug shows callback errors in the browser (set DASH_DEBUG=0 to turn off).
-    _debug = os.environ.get("DASH_DEBUG", "1").strip().lower() not in ("0", "false", "no")
-    # use_reloader=False avoids Werkzeug/watchdog ImportError on some Anaconda installs
-    app.run(
-        debug=_debug,
-        host="0.0.0.0",
-        port=_port(),
-        use_reloader=False,
+    # ── Build input row ──────────────────────────────────────
+    trim_val = trim if trim else (
+        df[(df['make'] == make) & (df['model'] == model_val)]['trim'].mode()
+        .iloc[0] if len(df[(df['make'] == make) & (df['model'] == model_val)]) > 0
+        else 'base'
     )
+
+    row = {
+        'year':         int(year),
+        'make':         make,
+        'model':        model_val,
+        'trim':         trim_val,
+        'body':         body,
+        'transmission': transmission,
+        'condition':    int(condition),
+        'odometer':     int(odometer),
+        'vehicle_age':  int(age),
+    }
+    input_df = pd.DataFrame([row])
+
+    # ── Encode categoricals ──────────────────────────────────
+    for col, le in encoders.items():
+        if col in input_df.columns:
+            val = input_df[col].iloc[0]
+            if val in le.classes_:
+                input_df[col] = le.transform([val])[0]
+            else:
+                input_df[col] = 0
+
+    # ── Align to training feature order ─────────────────────
+    for col in feat_cols:
+        if col not in input_df.columns:
+            input_df[col] = 0
+    input_df = input_df[feat_cols]
+
+    # ── Predict ─────────────────────────────────────────────
+    predicted = float(model.predict(input_df)[0])
+    predicted = max(500.0, predicted)
+
+    # Market context from similar vehicles
+    similar = df[
+        (df['make'] == make) &
+        (df['body'] == body) &
+        (df['vehicle_age'].between(int(age) - 1, int(age) + 1))
+    ]['sellingprice']
+
+    if len(similar) >= 5:
+        mkt_low  = similar.quantile(0.25)
+        mkt_high = similar.quantile(0.75)
+        note_text = (f"Similar {make.title()} {body}s aged ~{age} yrs "
+                     f"typically sell between ${mkt_low:,.0f} – ${mkt_high:,.0f}")
+    else:
+        note_text = "Not enough similar vehicles in dataset for market comparison."
+
+    result = html.Div([
+        html.P("Estimated Selling Price",
+               style={"color": TEXT_MUTED, "marginBottom": "4px", "fontSize": "13px"}),
+        html.H2(f"${predicted:,.0f}",
+                style={"color": ACCENT_SKY, "fontWeight": "800", "margin": "4px 0"}),
+        html.P(f"{make.title()} · {model_val.title()} · {int(year)} · {int(odometer):,} mi",
+               style={"color": TEXT_MUTED, "fontSize": "12px", "margin": 0}),
+    ])
+
+    # ── Feature importance ───────────────────────────────────
+    feat_imp = (
+        pd.DataFrame({'feature': feat_cols,
+                      'importance': model.feature_importances_})
+        .sort_values('importance', ascending=True)
+    )
+    fig_imp = px.bar(
+        feat_imp, x='importance', y='feature', orientation='h',
+        title='Feature Importance — What drives the prediction',
+        labels={'importance': 'Importance Score', 'feature': 'Feature'},
+        color='importance', color_continuous_scale='Blues'
+    )
+    fig_imp.update_layout(height=340, showlegend=False, coloraxis_showscale=False)
+    style_figure(fig_imp)
+
+    return (result, note_text, fig_imp,
+            '', '', '', '', '', '', '', '')
+
+
+# ============================================================
+# RUN
+# ============================================================
+if __name__ == '__main__':
+    app.run(debug=True)
