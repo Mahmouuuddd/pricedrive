@@ -10,7 +10,7 @@ import dash_bootstrap_components as dbc
 # ============================================================
 # LOAD DATA & MODEL
 # ============================================================
-df = pd.read_csv(r'dataset\cleaned_dataset.csv')
+df = pd.read_csv(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\dataset\cleaned_dataset.csv')
 
 # Ensure correct types
 df['year']         = df['year'].astype(int)
@@ -20,9 +20,9 @@ df['sellingprice'] = df['sellingprice'].astype(float)
 df['vehicle_age']  = df['vehicle_age'].astype(int)
 
 # Load ML artifacts
-model     = joblib.load(r'models\xgb_pricedrive.pkl')
-encoders  = joblib.load(r'models\label_encoders.pkl')
-feat_cols = joblib.load(r'models\feature_columns.pkl')
+model     = joblib.load(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\models\xgb_pricedrive.pkl')
+encoders  = joblib.load(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\models\label_encoders.pkl')
+feat_cols = joblib.load(r'C:\Users\youss\OneDrive\Desktop\DataV project\pricedrive\models\feature_columns.pkl')
 
 # Unique values for dropdowns
 makes         = sorted(df['make'].dropna().unique().tolist())
