@@ -10,7 +10,7 @@ import dash_bootstrap_components as dbc
 # ============================================================
 # LOAD DATA & MODEL
 # ============================================================
-df = pd.read_csv('./dataset/cleaned_dataset.csv')
+df = pd.read_csv('dataset/cleaned_dataset.csv')
 
 df['year']         = df['year'].astype(int)
 df['condition']    = df['condition'].astype(float)
@@ -18,9 +18,9 @@ df['odometer']     = df['odometer'].astype(float)
 df['sellingprice'] = df['sellingprice'].astype(float)
 df['vehicle_age']  = df['vehicle_age'].astype(int)
 
-model     = joblib.load('./models/xgb_pricedrive.pkl')
-encoders  = joblib.load('./models/label_encoders.pkl')
-feat_cols = joblib.load('./models/feature_columns.pkl')
+model     = joblib.load('models/xgb_pricedrive.pkl')
+encoders  = joblib.load('models/label_encoders.pkl')
+feat_cols = joblib.load('models/feature_columns.pkl')
 
 makes         = sorted(df['make'].dropna().unique().tolist())
 body_types    = sorted(df[df['body'] != 'unknown']['body'].dropna().unique().tolist())
@@ -178,13 +178,13 @@ sidebar = html.Div([
         html.P("Data in the driver's seat", style={"color": TEXT_MUTED, "fontSize": "12px", "marginBottom": "32px"}),
     ]),
     dbc.Nav([
-        dbc.NavLink("📊  Overview",        href="/",          active="exact",
+        dbc.NavLink("  Overview",        href="/",          active="exact",
                     style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
-        dbc.NavLink("📈  Sales Trends",    href="/trends",    active="exact",
+        dbc.NavLink("  Sales Trends",    href="/trends",    active="exact",
                     style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
-        dbc.NavLink("🏷️  Market Analysis", href="/market",    active="exact",
+        dbc.NavLink("  Market Analysis", href="/market",    active="exact",
                     style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
-        dbc.NavLink("🤖  Price Predictor", href="/predictor", active="exact",
+        dbc.NavLink("  Price Predictor", href="/predictor", active="exact",
                     style={"color": TEXT_MAIN, "marginBottom": "8px", "borderRadius": "10px", "padding": "12px 16px"}),
     ], vertical=True, pills=True),
 ], style=SIDEBAR_STYLE)
@@ -353,7 +353,7 @@ def market_layout():
 # ============================================================
 def predictor_layout():
     return html.Div([
-        html.H4("🤖 Vehicle Price Predictor",
+        html.H4(" Vehicle Price Predictor",
                 style={"fontWeight": "700", "marginBottom": "8px"}),
         html.P("Fill in the vehicle details to get an estimated selling price.",
                style={"color": TEXT_MUTED, "marginBottom": "20px"}),

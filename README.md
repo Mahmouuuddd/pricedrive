@@ -14,7 +14,7 @@ PriceDrive is an end-to-end data exploration, preparation, and visualization pro
 
 | Resource | URL |
 |---|---|
-| 🌐 Live Dashboard | [PriceDrive on Hugging Face Spaces](#) |
+| 🌐 Live Dashboard | [PriceDrive on Hugging Face Spaces](https://huggingface.co/spaces/MahmoudSaqr22/pricedrive) |
 | 📓 Jupyter Notebook | [project.ipynb](./project.ipynb) |
 | 📊 Dataset | [Vehicle Sales Data — Kaggle](https://www.kaggle.com/datasets/syedanwarafridi/vehicle-sales-data) |
 
